@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import '@solana/wallet-adapter-react-ui/styles.css';
 
-
-import { WebIrys } from "@irys/sdk";
 import { PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider, web3, utils, BN } from '@coral-xyz/anchor';
 import idl from './idl.json';
@@ -22,68 +20,51 @@ const PublishPage = () => {
 
     const handlePublish = async () => {
         if (!wallet.publicKey) return alert("Please Connect Wallet first!");
-
+        
         try {
             setStatus("Starting process...");
-            // FIX: Generate a shorter ID (must be < 32 chars for Solana seeds)
             const contentId = "id_" + Math.random().toString(36).substring(2, 12);
-
-            // --- STEP A: Encrypt with Lit ---
-            setStatus("Encrypting data (Please sign the auth message)...");
+            
+            // --- STEP A: Hybrid Encryption ---
+            setStatus("Encrypting data locally & locking key with Lit...");
             const litClient = await getLitClient();
-            console.log("Lit Client connected:", litClient);
 
-            const { ciphertext, dataToEncryptHash, solRpcConditions } = await encryptWithLit(litClient, fileText);
-
+            // This now returns our structured object { payload, lit_security }
+            const hybridBundle = await encryptWithLit(litClient, fileText);
+            
             // --- STEP B: Upload to Arweave ---
-            // Prepare metadata separate from the encrypted payload
+            // Metadata for the JSON file (public info)
             const metadata = {
                 title,
                 description: "Premium Content",
                 contentId,
-                solRpcConditions
+                // We don't need to pass conditions here separately anymore, 
+                // they are inside hybridBundle.lit_security
             };
 
             setStatus("Uploading to Arweave...");
 
-            // FIX: Pass 'wallet' as the first argument
+            // Pass the entire bundle
             const arweaveHash = await uploadToArweave(
-                wallet,
-                {
-                    encryptedString: ciphertext,
-                    encryptedSymmetricKey: dataToEncryptHash,
-                    accessControlConditions: solRpcConditions
-                },
+                wallet, 
+                hybridBundle, 
                 metadata
             );
-
+            
             console.log("Arweave Hash:", arweaveHash);
 
-            // --- STEP C: List on Solana ---
+            // --- STEP C: List on Solana (Unchanged) ---
             setStatus("Listing on Smart Contract...");
 
             const provider = new AnchorProvider(connection, wallet, {});
-            console.log("Anchor Provider created :", provider);
-
             const validIdl = idl.default || idl;
-
-            // Debugging: Check if IDL is loaded correctly
-            console.log("Loaded IDL:", validIdl);
-
-            if (!validIdl || !validIdl.accounts) {
-                throw new Error("IDL file is missing or invalid. Please check idl.json");
-            }
             validIdl.address = "D3tJsQ2Ad36CNK68H9P9porbsmQAyXz8WxxN3CfkDi91";
-
-            // REPLACE WITH YOUR PROGRAM ID
             const program = new Program(validIdl, provider);
-            console.log("Program instance created:", program);
 
             const [listingPda] = PublicKey.findProgramAddressSync(
                 [utils.bytes.utf8.encode("listing"), utils.bytes.utf8.encode(contentId)],
                 program.programId
             );
-            console.log("Listing PDA:", listingPda.toBase58());
 
             await program.methods
                 .listContent(contentId, arweaveHash, title, new BN(price))

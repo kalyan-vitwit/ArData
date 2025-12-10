@@ -1,23 +1,13 @@
 import { WebIrys } from '@irys/sdk';
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+// import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 
-/**
- * Initialize Irys client using the React Wallet Adapter
- * @param {Object} wallet - The wallet object from useWallet() hook
- */
+
 export async function initializeIrys(wallet) {
+    // ... (This function remains exactly the same as before) ...
     try {
-        if (!wallet || !wallet.publicKey) {
-            throw new Error('Wallet not connected');
-        }
-
+        if (!wallet || !wallet.publicKey) throw new Error('Wallet not connected');
         const rpcUrl = "https://api.devnet.solana.com";
-
-        // Create the compatible wrapper
-        const walletAdapter = {
-            name: "solana",
-            provider: wallet, // Pass the React wallet adapter here
-        };
+        const walletAdapter = { name: "solana", provider: wallet };
 
         const irys = new WebIrys({
             url: 'https://devnet.irys.xyz',
@@ -26,61 +16,42 @@ export async function initializeIrys(wallet) {
             config: { providerUrl: rpcUrl } 
         });
 
-        console.log('🔄 Connecting to Irys...');
         await irys.ready();
-        console.log('✅ Irys client initialized');
-        
         return irys;
-
     } catch (error) {
-        console.error('❌ Failed to initialize Irys:', error);
         throw new Error(`Irys initialization failed: ${error.message}`);
     }
 }
 
 /**
- * Check Irys balance
+ * Upload Hybrid Encrypted data
+ * @param {Object} hybridData - The object returned from encryptWithLit
  */
-export async function checkIrysBalance(irys) {
+export async function uploadToArweave(wallet, hybridData, metadata = {}) {
     try {
-        const balance = await irys.getLoadedBalance();
-        console.log(`💰 Irys Node Balance: ${irys.utils.fromAtomic(balance)} SOL`);
-        return balance;
-    } catch (error) {
-        console.error('❌ Failed to check balance:', error);
-        throw error;
-    }
-}
-
-/**
- * Upload encrypted data to Arweave
- * @param {Object} wallet - The wallet object from useWallet()
- * @param {Object} encryptedData - The encrypted data object
- * @param {Object} metadata - (Optional) Additional metadata
- */
-export async function uploadToArweave(wallet, encryptedData, metadata = {}) {
-    try {
-        // 1. Initialize with the passed wallet
         const irys = await initializeIrys(wallet);
 
-        // 2. Prepare Data
+        // --- NEW DATA STRUCTURE ---
         const dataPackage = {
-            encrypted: {
-                ciphertext: encryptedData.encryptedString, // This key name matches what you passed from PublishPage
-                dataToEncryptHash: encryptedData.encryptedSymmetricKey,
-                accessControlConditions: encryptedData.accessControlConditions, 
-            },
+            // 1. The Big Data (Encrypted locally)
+            payload: hybridData.payload, 
+            
+            // 2. The Security (Lit Protocol wrapper)
+            lit_security: hybridData.lit_security,
+
+            // 3. Metadata
             metadata: {
                 uploadedAt: new Date().toISOString(),
                 contentType: 'ai-prompt',
-                version: '1.0',
+                version: '2.0', // Updated version
                 ...metadata,
             },
         };
+        // --------------------------
 
         const dataString = JSON.stringify(dataPackage);
 
-        // 3. Check Balance & Price
+        // Check Price & Fund
         const price = await irys.getPrice(dataString.length);
         const balance = await irys.getLoadedBalance();
 
@@ -88,16 +59,9 @@ export async function uploadToArweave(wallet, encryptedData, metadata = {}) {
 
         if (balance.lt(price)) {
             console.log(`Funding needed...`);
-            try {
-                // Fund exact amount needed
-                await irys.fund(price); 
-                console.log('✅ Funded successfully');
-            } catch (fundError) {
-                throw new Error(`Funding failed: ${fundError.message}`);
-            }
+            await irys.fund(price); 
         }
 
-        // 4. Upload
         console.log('📤 Uploading...');
         const receipt = await irys.upload(dataString, {
             tags: [
