@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::system_program::{transfer, Transfer};
 
 declare_id!("D3tJsQ2Ad36CNK68H9P9porbsmQAyXz8WxxN3CfkDi91");
 
@@ -41,6 +42,55 @@ pub mod solana_arweave_store {
         msg!("Listed: {}", listing.title);
         Ok(())
     }
+
+    // --- 2. BUY CONTENT (User) ---
+    pub fn buy_content(ctx: Context<BuyContent>, content_id: String) -> Result<()> {
+        let listing = &ctx.accounts.listing_pda;
+        let buyer = &ctx.accounts.buyer;
+        let seller = &ctx.accounts.seller;
+        let treasury = &ctx.accounts.treasury;
+        let receipt = &mut ctx.accounts.receipt_pda;
+
+        let price = listing.price;
+
+        // A. Calculate Split
+        let fee_amount = (price * PLATFORM_FEE_PERCENTAGE) / 100;
+        let seller_amount = price - fee_amount;
+
+        msg!("Price: {}, Seller receives: {}, Treasury receives: {}", price, seller_amount, fee_amount);
+
+        // B. Transfer to Seller (95%)
+        let transfer_seller_accounts = Transfer{
+            from: buyer.to_account_info(),
+            to: seller.to_account_info(),
+        };
+        let seller_ctx = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_seller_accounts
+        );
+        transfer(seller_ctx, seller_amount)?;
+
+        // C. Transfer to Treasury (5%)
+        let transfer_treasury_accounts = Transfer {
+            from: buyer.to_account_info(),
+            to: treasury.to_account_info(),
+        };
+        let treasury_ctx = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            transfer_treasury_accounts
+        );
+        transfer(treasury_ctx, fee_amount)?;
+
+        // D. Create Receipt PDA
+        receipt.buyer = buyer.key();
+        receipt.listing_id = content_id; // Store ID to link back to listing
+        receipt.listing_pubkey = listing.key(); // Store actual PDA address
+        receipt.timestamp = Clock::get()?.unix_timestamp;
+        receipt.bump = ctx.bumps.receipt_pda;
+
+        msg!("Content Purchased! Receipt created.");
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -53,13 +103,48 @@ pub struct ListContent<'info> {
         init,
         payer = seller,
         // SEED CHANGE: Use the UUID (content_id) as the seed, not the hash
-        seeds = [b"listing", content_id.as_bytes()], 
-        bump,
-        // Space calculation (Adjust lengths as needed)
-        // 8 (disc) + 32 (auth) + (4+36) (uuid) + (4+43) (hash) + (4+64) (title) + 8 (price) + 1 (bump)
-        space = 8 + 32 + (4 + 36) + (4 + 43) + (4 + 64) + 8 + 1
+            seeds = [b"listing", content_id.as_bytes()], 
+            bump,
+            // Space calculation (Adjust lengths as needed)
+            // 8 (disc) + 32 (auth) + (4+36) (uuid) + (4+43) (hash) + (4+64) (title) + 8 (price) + 1 (bump)
+        space = 8 + 32 + (4 + 36) + (4 + 43) + (title.len()) + 8 + 1
     )]
     pub listing_pda: Account<'info, Listing>,
+
+    pub system_program: Program<'info, System>,
+}
+
+
+#[derive(Accounts)]
+#[instruction(content_id: String)]
+pub struct BuyContent<'info> {
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    /// CHECK: We verify this matches the authority stored in the listing_pda
+    #[account(mut, address = listing_pda.authority)] 
+    pub seller: AccountInfo<'info>,
+
+    #[account(
+        seeds = [b"listing", content_id.as_bytes()],
+        bump = listing_pda.bump,
+    )]
+    pub listing_pda: Account<'info, Listing>,
+
+    /// CHECK: Must match the hardcoded treasury wallet
+    #[account(mut, address = admin::TREASURY_KEY)]
+    pub treasury: AccountInfo<'info>,
+
+    #[account(
+        init,
+        payer = buyer,
+        // Unique Seed: "receipt" + Buyer Key + Content ID
+        // This ensures a user can't buy the same content twice (optional, but good for receipts)
+        seeds = [b"receipt", buyer.key().as_ref(), content_id.as_bytes()], 
+        bump,
+        space = 8 + 32 + 40 + 32 + 8 + 1 
+    )]
+    pub receipt_pda: Account<'info, Receipt>,
 
     pub system_program: Program<'info, System>,
 }
@@ -71,5 +156,14 @@ pub struct Listing {
     pub arweave_hash: String, // The storage pointer
     pub title: String,       // Fast lookup for UI
     pub price: u64,
+    pub bump: u8,
+}
+
+#[account]
+pub struct Receipt {
+    pub buyer: Pubkey,       // Who bought it
+    pub listing_id: String,  // The ID of the content (e.g. "id_123")
+    pub listing_pubkey: Pubkey, // The exact address of the listing account
+    pub timestamp: i64,      // When they bought it
     pub bump: u8,
 }
