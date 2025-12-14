@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("D3tJsQ2Ad36CNK68H9P9porbsmQAyXz8WxxN3CfkDi91");
+declare_id!("EH7hw6xEUm9seh7Ss3jGERDXh7UeFY4ZA9X1wdLd5hif");
 
 // Config: Platform takes 5%
 

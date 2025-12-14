@@ -5,15 +5,15 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-payment_contract = "D3tJsQ2Ad36CNK68H9P9porbsmQAyXz8WxxN3CfkDi91"
+[programs.devnet]
+payment_contract = "EH7hw6xEUm9seh7Ss3jGERDXh7UeFY4ZA9X1wdLd5hif"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "devnet"
+wallet = "/home/chandini/Desktop/ArData/payment-contract/devnet-wallet.json"
 
 [scripts]
 test = "npx mocha -t 1000000 tests/**/*.js"

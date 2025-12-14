@@ -1,5 +1,5 @@
 {
-  "address": "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS",
+  "address": "EH7hw6xEUm9seh7Ss3jGERDXh7UeFY4ZA9X1wdLd5hif",
   "metadata": {
     "name": "solana_arweave_store",
     "version": "0.1.0",
@@ -7,6 +7,96 @@
     "description": "Created with Anchor"
   },
   "instructions": [
+    {
+      "name": "buy_content",
+      "discriminator": [
+        139,
+        214,
+        48,
+        8,
+        243,
+        48,
+        10,
+        29
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "seller",
+          "writable": true
+        },
+        {
+          "name": "listing_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "content_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "address": "H5DiQKbhnKM2GMtpc953QZJwVCEi5zDawkseH3zGMg86"
+        },
+        {
+          "name": "receipt_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  101,
+                  105,
+                  112,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "arg",
+                "path": "content_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "content_id",
+          "type": "string"
+        }
+      ]
+    },
     {
       "name": "list_content",
       "discriminator": [
@@ -87,6 +177,19 @@
         26,
         58
       ]
+    },
+    {
+      "name": "Receipt",
+      "discriminator": [
+        39,
+        154,
+        73,
+        106,
+        80,
+        102,
+        145,
+        153
+      ]
     }
   ],
   "types": [
@@ -114,6 +217,34 @@
           {
             "name": "price",
             "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Receipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "listing_id",
+            "type": "string"
+          },
+          {
+            "name": "listing_pubkey",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           },
           {
             "name": "bump",
