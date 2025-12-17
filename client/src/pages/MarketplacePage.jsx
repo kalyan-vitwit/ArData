@@ -35,7 +35,6 @@ const MarketplacePage = () => {
     return (
         <div style={styles.pageContainer}>
             <div style={styles.contentWrapper}>
-                {/* Hero Header */}
                 <div style={styles.heroSection}>
                     <div style={styles.heroGradient}></div>
                     <h1 style={styles.heroTitle}>Discover Premium Content</h1>
@@ -60,7 +59,6 @@ const MarketplacePage = () => {
                     </div>
                 </div>
 
-                {/* Courses Grid */}
                 {courses.length === 0 ? (
                     <div style={styles.emptyState}>
                         <div style={styles.emptyIcon}>📚</div>
@@ -119,7 +117,6 @@ const MarketplacePage = () => {
                     </div>
                 )}
 
-                {/* Footer Section */}
                 <div style={styles.marketplaceFooter}>
                     <div style={styles.footerContent}>
                         <div style={styles.footerIcon}>⚡</div>

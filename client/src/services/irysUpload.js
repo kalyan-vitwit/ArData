@@ -1,9 +1,6 @@
 import { WebIrys } from '@irys/sdk';
-// import { Connection, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
-
 
 export async function initializeIrys(wallet) {
-    // ... (This function remains exactly the same as before) ...
     try {
         if (!wallet || !wallet.publicKey) throw new Error('Wallet not connected');
         const rpcUrl = "https://api.devnet.solana.com";
@@ -23,35 +20,23 @@ export async function initializeIrys(wallet) {
     }
 }
 
-/**
- * Upload Hybrid Encrypted data
- * @param {Object} hybridData - The object returned from encryptWithLit
- */
 export async function uploadToArweave(wallet, hybridData, metadata = {}) {
     try {
         const irys = await initializeIrys(wallet);
 
-        // --- NEW DATA STRUCTURE ---
         const dataPackage = {
-            // 1. The Big Data (Encrypted locally)
             payload: hybridData.payload, 
-            
-            // 2. The Security (Lit Protocol wrapper)
             lit_security: hybridData.lit_security,
-
-            // 3. Metadata
             metadata: {
                 uploadedAt: new Date().toISOString(),
                 contentType: 'ai-prompt',
-                version: '2.0', // Updated version
+                version: '2.0',
                 ...metadata,
             },
         };
-        // --------------------------
 
         const dataString = JSON.stringify(dataPackage);
 
-        // Check Price & Fund
         const price = await irys.getPrice(dataString.length);
         const balance = await irys.getLoadedBalance();
 

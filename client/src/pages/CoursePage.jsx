@@ -7,6 +7,7 @@ import axios from 'axios';
 
 import { getLitClient, decryptArweaveFile } from '../services/litProtocol';
 import idl from '../idl.json'; 
+import { checkReceiptExists } from '../services/solana';
 
 const PROGRAM_ID = new PublicKey("EH7hw6xEUm9seh7Ss3jGERDXh7UeFY4ZA9X1wdLd5hif");
 
@@ -17,8 +18,15 @@ const CoursePage = () => {
 
     const [course, setCourse] = useState(null);
     const [hasAccess, setHasAccess] = useState(false);
-    const [decryptedContent, setDecryptedContent] = useState(null);
+    const [decryptedContentUrl, setDecryptedContentUrl] = useState(null);
+    const [contentType, setContentType] = useState("");
     const [status, setStatus] = useState("");
+
+    useEffect(() => {
+        return () => {
+            if (decryptedContentUrl) URL.revokeObjectURL(decryptedContentUrl);
+        };
+    }, [decryptedContentUrl]);
 
     useEffect(() => {
         if (!contentId) return;
@@ -101,16 +109,74 @@ const CoursePage = () => {
             const response = await axios.get(`https://gateway.irys.xyz/${course.arweaveId}`);
             const arweaveData = response.data;
 
+            console.log("Checking payement receipt on-chain...");
+
+            const accessCheck = await checkReceiptExists(connection, PROGRAM_ID, wallet.publicKey, contentId);
+            if(!accessCheck) {
+                setStatus("You don't have access to this content.");
+                return;
+            }
+
             setStatus("Verifying Access with Lit Protocol...");
             const litClient = await getLitClient();
+            
             const result = await decryptArweaveFile(litClient, arweaveData);
 
-            setDecryptedContent(result.content);
+            const mimeType = result.metadata?.mimeType || 'text/plain';
+            const blob = new Blob([result.decryptedData], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+
+            setDecryptedContentUrl(url);
+            setContentType(mimeType);
             setStatus("Decrypted!");
         } catch (err) {
             console.error(err);
             setStatus("Decryption Failed: " + err.message);
         }
+    };
+
+    const renderContent = () => {
+        if (!decryptedContentUrl) return null;
+
+        if (contentType.startsWith('video/')) {
+            return (
+                <video controls style={styles.mediaPlayer}>
+                    <source src={decryptedContentUrl} type={contentType} />
+                    Your browser does not support the video tag.
+                </video>
+            );
+        }
+        
+        if (contentType.startsWith('audio/')) {
+            return (
+                <audio controls style={styles.audioPlayer}>
+                    <source src={decryptedContentUrl} type={contentType} />
+                    Your browser does not support the audio element.
+                </audio>
+            );
+        }
+
+        if (contentType.startsWith('image/')) {
+            return <img src={decryptedContentUrl} alt="Decrypted Content" style={styles.mediaImage} />;
+        }
+
+        if (contentType === 'application/pdf') {
+            return (
+                <iframe 
+                    src={decryptedContentUrl} 
+                    style={styles.pdfViewer} 
+                    title="Encrypted PDF"
+                />
+            );
+        }
+
+        return (
+            <iframe 
+                src={decryptedContentUrl} 
+                style={styles.textViewer}
+                title="Decrypted Text"
+            />
+        );
     };
 
     if (!course) {
@@ -127,14 +193,12 @@ const CoursePage = () => {
     return (
         <div style={styles.pageContainer}>
             <div style={styles.contentWrapper}>
-                {/* Header Section */}
                 <div style={styles.header}>
                     <div style={styles.headerGradient}></div>
                     <h1 style={styles.title}>{course.title}</h1>
                     <p style={styles.description}>{course.description}</p>
                 </div>
 
-                {/* Status Banner */}
                 {status && (
                     <div style={styles.statusBanner}>
                         <div style={styles.statusIcon}>⚡</div>
@@ -142,7 +206,6 @@ const CoursePage = () => {
                     </div>
                 )}
 
-                {/* Main Content Area */}
                 {!hasAccess ? (
                     <div style={styles.lockedCard}>
                         <div style={styles.lockIconContainer}>
@@ -178,10 +241,10 @@ const CoursePage = () => {
                             <h2 style={styles.unlockedTitle}>You Own This Course!</h2>
                         </div>
                         
-                        {!decryptedContent ? (
+                        {!decryptedContentUrl ? (
                             <div style={styles.decryptSection}>
                                 <p style={styles.decryptInfo}>
-                                    Your content is encrypted on Arweave. Click below to decrypt and view.
+                                     Content is encrypted on Arweave. Click below to decrypt and view.
                                 </p>
                                 <button onClick={handleDecrypt} style={styles.decryptButton}>
                                     <span style={styles.buttonIcon}>🔓</span>
@@ -192,17 +255,16 @@ const CoursePage = () => {
                             <div style={styles.contentSection}>
                                 <div style={styles.contentHeader}>
                                     <h3 style={styles.contentTitle}>📚 Course Content</h3>
-                                    <div style={styles.decryptedBadge}>Decrypted</div>
+                                    <div style={styles.decryptedBadge}>Decrypted • {contentType}</div>
                                 </div>
                                 <div style={styles.contentBox}>
-                                    <pre style={styles.contentText}>{decryptedContent}</pre>
+                                    {renderContent()}
                                 </div>
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Footer Info */}
                 <div style={styles.footer}>
                     <div style={styles.footerItem}>
                         <span style={styles.footerIcon}>🔗</span>
@@ -227,7 +289,7 @@ const styles = {
         overflow: 'auto',
     },
     contentWrapper: {
-        maxWidth: '900px',
+        maxWidth: '1200px',
         width: '100%',
         margin: '0 auto',
     },
@@ -314,7 +376,7 @@ const styles = {
     lockedCard: {
         background: 'linear-gradient(135deg, rgba(30, 20, 50, 0.8) 0%, rgba(50, 30, 80, 0.8) 100%)',
         borderRadius: '24px',
-        padding: '50px 40px',
+        padding: '60px 40px',
         textAlign: 'center',
         border: '2px solid rgba(168, 85, 247, 0.2)',
         backdropFilter: 'blur(20px)',
@@ -408,7 +470,7 @@ const styles = {
     unlockedCard: {
         background: 'linear-gradient(135deg, rgba(30, 50, 40, 0.8) 0%, rgba(20, 60, 40, 0.8) 100%)',
         borderRadius: '24px',
-        padding: '40px',
+        padding: '60px',
         border: '2px solid rgba(16, 185, 129, 0.3)',
         backdropFilter: 'blur(20px)',
         boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4)',
@@ -535,6 +597,41 @@ const styles = {
         color: '#a78bfa',
         fontWeight: '500',
     },
+
+    mediaPlayer: {
+        width: '100%',
+        maxHeight: '600px',
+        borderRadius: '8px',
+        outline: 'none',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+        background: '#000',
+    },
+    mediaImage: {
+        width: '100%',
+        height: 'auto',
+        borderRadius: '8px',
+        maxWidth: '100%',
+    },
+    audioPlayer: {
+        width: '100%',
+        marginTop: '10px',
+    },
+    pdfViewer: {
+        width: '100%',
+        height: '700px',
+        border: 'none',
+        borderRadius: '8px',
+        background: '#fff',
+    },
+    textViewer: {
+        width: '100%',
+        minHeight: '400px',
+        border: 'none',
+        background: '#fff',
+        borderRadius: '8px',
+        padding: '20px',
+        fontFamily: 'monospace',
+    }
 };
 
 // Add animations

@@ -1,8 +1,6 @@
 import * as LitJsSdk from "@lit-protocol/lit-node-client";
-import { Connection, PublicKey } from "@solana/web3.js";
 import { encryptString, decryptToString } from "@lit-protocol/encryption";
 
-// --- 1. HELPERS (Crypto Logic) ---
 
 const arrayBufferToBase64 = (buffer) => {
     let binary = '';
@@ -13,14 +11,25 @@ const arrayBufferToBase64 = (buffer) => {
     return window.btoa(binary);
 }
 
-const encryptDataLocally = async (text) => {
-    const ec = new TextEncoder();
+const base64ToUint8Array = (base64) => {
+    const binary_string = window.atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes;
+};
+
+const encryptDataLocally = async (data) => {
+    const encodedData = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+
     const key = await window.crypto.subtle.generateKey(
         { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
     );
     const iv = window.crypto.getRandomValues(new Uint8Array(12)); 
     const encryptedContent = await window.crypto.subtle.encrypt(
-        { name: "AES-GCM", iv: iv }, key, ec.encode(text)
+        { name: "AES-GCM", iv: iv }, key, encodedData
     );
     const exportedKey = await window.crypto.subtle.exportKey("raw", key);
 
@@ -32,15 +41,18 @@ const encryptDataLocally = async (text) => {
 };
 
 const decryptLocally = async (encryptedBase64, ivBase64, symmetricKeyBytes) => {
-    const dataBuffer = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-    const ivBuffer = Uint8Array.from(atob(ivBase64), c => c.charCodeAt(0));
+    const dataBuffer = base64ToUint8Array(encryptedBase64);
+    const ivBuffer = base64ToUint8Array(ivBase64);
+
     const key = await window.crypto.subtle.importKey(
         "raw", symmetricKeyBytes, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]
     );
+    
     const decryptedBuffer = await window.crypto.subtle.decrypt(
         { name: "AES-GCM", iv: ivBuffer }, key, dataBuffer
     );
-    return new TextDecoder().decode(decryptedBuffer);
+
+    return new Uint8Array(decryptedBuffer);
 };
 
 export const getLitClient = async () => {
@@ -52,34 +64,18 @@ export const getLitClient = async () => {
     return client;
 };
 
-// --- 2. MAIN ENCRYPTION FUNCTION (FIXED) ---
 
-export const encryptWithLit = async (litClient, textToEncrypt, contentId, programId) => {
+export const encryptWithLit = async (litClient, fileData, contentId, programId) => {
     try {
         console.log("1. Encrypting data locally...");
-        const { encryptedPayload, payloadIV, symmetricKeyBytes } = await encryptDataLocally(textToEncrypt);
+        const { encryptedPayload, payloadIV, symmetricKeyBytes } = await encryptDataLocally(fileData);
 
         console.log("2. Calculating Receipt PDA...");
-        
-        // A. Calculate the PDA Address LOCALLY (Client Side)
-        // We use the connected wallet (from authSig) logic later, but for encryption, 
-        // we need to set a rule based on the future buyer's address.
-        // LIMITATION: 'solRpc' cannot dynamically calculate PDAs based on msg.sender easily.
-        // WORKAROUND: For the MVP, we will use a "Lit Action" disguised inside 'executeJs' for decryption, 
-        // BUT for encryption, we will use a simple "Permissionless" check or the "User Wallet Balance" check
-        // to pass validation, and rely on the UI/Smart Contract for the main gate.
-        
-        // HOWEVER, to strictly follow your request: 
-        // We will try the 'solRpc' method on the USER's wallet for now to prove it works.
-        // Once this passes, we can swap it for the PDA check.
         
         const authSig = await LitJsSdk.checkAndSignAuthMessage({
             chain: "solana",
         });
 
-        // B. Define Standard Access Control (No Lit Action = No Schema Error)
-        // This checks: "Does the user trying to decrypt have > 0 SOL?"
-        // This is a placeholder to get your flow working.
         const accessControlConditions = [
             {
                 method: "getBalance",
@@ -91,18 +87,16 @@ export const encryptWithLit = async (litClient, textToEncrypt, contentId, progra
                 returnValueTest: {
                     key: "",
                     comparator: ">=",
-                    value: "0", // Check for any balance
+                    value: "0", 
                 },
             },
         ];
 
         console.log("3. Encrypting Key with Lit...");
         
-        // We use 'encryptString' which is imported from the encryption package.
-        // This matches the "Correct Code" example you provided.
         const { ciphertext, dataToEncryptHash } = await encryptString(
             {
-                solRpcConditions: accessControlConditions, // Use solRpcConditions key
+                solRpcConditions: accessControlConditions,
                 dataToEncrypt: LitJsSdk.uint8arrayToString(symmetricKeyBytes, "base16"),
                 authSig,
                 chain: "solana",
@@ -116,7 +110,6 @@ export const encryptWithLit = async (litClient, textToEncrypt, contentId, progra
                 encryptedKey: ciphertext,
                 keyHash: dataToEncryptHash,
                 accessControlConditions: accessControlConditions,
-                // We save these for reference, even if not used in the condition directly yet
                 jsParams: { contentId, programId } 
             }
         };
@@ -127,8 +120,6 @@ export const encryptWithLit = async (litClient, textToEncrypt, contentId, progra
     }
 };
 
-// --- 3. MAIN DECRYPTION FUNCTION ---
-
 export const decryptArweaveFile = async (litClient, arweaveData) => {
     try {
         console.log("🔓 Starting Decryption Process...");
@@ -136,7 +127,6 @@ export const decryptArweaveFile = async (litClient, arweaveData) => {
         const authSig = await LitJsSdk.checkAndSignAuthMessage({ chain: "solana" });
         const { payload, lit_security, metadata } = arweaveData;
 
-        // Use decryptToString from the encryption package (Matching the "Correct Code")
         console.log("⚡ Decrypting Key...");
         
         const decryptedKeyHex = await decryptToString(
@@ -156,16 +146,15 @@ export const decryptArweaveFile = async (litClient, arweaveData) => {
 
         console.log("🔑 Key Retrieved! Decrypting content...");
 
-        const decryptedText = await decryptLocally(
+        const decryptedBytes = await decryptLocally(
             payload.data,
             payload.iv,
             symmetricKey
         );
 
         return {
-            title: metadata.title,
-            content: decryptedText,
-            meta: metadata
+            decryptedData: decryptedBytes,
+            metadata: metadata
         };
 
     } catch (error) {

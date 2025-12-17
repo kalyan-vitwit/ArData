@@ -1,8 +1,3 @@
-// ============================================
-// UPDATED APP.JS
-// ============================================
-
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { WalletModalProvider, WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
@@ -14,6 +9,7 @@ import '@solana/wallet-adapter-react-ui/styles.css';
 import MarketplacePage from './pages/MarketplacePage';
 import CoursePage from './pages/CoursePage';
 import PublishPage from './pages/PublishPage';
+import MyCoursesPage from './pages/MyCoursesPage';
 
 function App() {
     const endpoint = clusterApiUrl('devnet');
@@ -24,7 +20,6 @@ function App() {
             <WalletProvider wallets={wallets} autoConnect>
                 <WalletModalProvider>
                     <Router>
-                        {/* Updated Navigation Header with Web3 theme */}
                         <header style={styles.header}>
                             <nav style={styles.nav}>
                                 <Link to="/" style={styles.link}>
@@ -35,15 +30,19 @@ function App() {
                                     <span style={styles.linkIcon}>➕</span>
                                     Publish Content
                                 </Link>
+                                <Link to="/my-courses" style={styles.link}>
+                                    <span style={styles.linkIcon}>📚</span>
+                                    My Courses
+                                </Link>
                             </nav>
                             <WalletMultiButton style={styles.walletButton} />
                         </header>
 
-                        {/* REMOVE THE WRAPPER DIV - Let each page handle its own layout */}
                         <Routes>
                             <Route path="/" element={<MarketplacePage />} />
                             <Route path="/course/:contentId" element={<CoursePage />} />
                             <Route path="/publish" element={<PublishPage />} />
+                            <Route path="/my-courses" element={<MyCoursesPage />} />
                         </Routes>
                     </Router>
                 </WalletModalProvider>

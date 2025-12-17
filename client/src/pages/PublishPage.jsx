@@ -15,8 +15,11 @@ const PublishPage = () => {
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [price, setPrice] = useState(0);
-    const [fileText, setFileText] = useState("");
+    const [fileContent, setFileContent] = useState(null);
     const [fileName, setFileName] = useState("");
+    const [fileSize, setFileSize] = useState(0);
+    const [mimeType, setMimeType] = useState("");
+    const [secretText, setSecretText] = useState("");
     const [status, setStatus] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
 
@@ -25,25 +28,41 @@ const PublishPage = () => {
         const file = e.target.files[0];
         if (!file) return;
 
+        if (file.size > 50 * 1024 * 1024) {
+             const confirmLarge = window.confirm("This file is over 50MB. Encryption might be slow or crash the browser. Continue?");
+             if (!confirmLarge) {
+                 e.target.value = "";
+                 return;
+             }
+        }
+
         setFileName(file.name);
+        setFileSize(file.size);
+        setMimeType(file.type);
+        setSecretText("");
+        
+        setStatus(`Reading "${file.name}"...`);
+        
         const reader = new FileReader();
 
         reader.onload = (event) => {
-            setFileText(event.target.result);
-            setStatus(`File "${file.name}" loaded successfully!`);
+            setFileContent(event.target.result); // ArrayBuffer
+            setStatus(`File "${file.name}" ready for encryption!`);
         };
 
         reader.onerror = () => {
             setStatus("Error reading file");
         };
 
-        reader.readAsText(file);
+        reader.readAsArrayBuffer(file); 
     };
 
     // Clear uploaded file
     const clearFile = () => {
-        setFileText("");
+        setFileContent(null);
         setFileName("");
+        setFileSize(0);
+        setMimeType("");
         setStatus("");
         document.getElementById('fileInput').value = '';
     };
@@ -51,7 +70,7 @@ const PublishPage = () => {
     const handlePublish = async () => {
         if (!wallet.publicKey) return alert("Please Connect Wallet first!");
         if (!title.trim()) return alert("Please enter a title!");
-        if (!fileText.trim()) return alert("Please add content or upload a file!");
+        if (!fileContent && !secretText.trim()) return alert("Please add content or upload a file!"); 
         if (price <= 0) return alert("Please set a valid price!");
 
         try {
@@ -59,23 +78,33 @@ const PublishPage = () => {
             setStatus("Starting process...");
             const contentId = "id_" + Math.random().toString(36).substring(2, 12);
 
-            // Encrypt with Lit Protocol
+            let dataToEncrypt;
+            let finalMimeType = mimeType;
+
+            if (fileName && fileContent) {
+                dataToEncrypt = new Uint8Array(fileContent);
+            } else {
+                const encoder = new TextEncoder();
+                dataToEncrypt = encoder.encode(secretText); 
+                finalMimeType = "text/plain";
+            }
+
             setStatus("Encrypting data with Lit Protocol...");
             const litClient = await getLitClient();
-            const hybridBundle = await encryptWithLit(litClient, fileText);
+            const hybridBundle = await encryptWithLit(litClient, dataToEncrypt);
 
-            // Upload to Arweave
             setStatus("Uploading to Arweave...");
             const metadata = {
                 title,
                 description: description || "Premium Content",
                 contentId,
+                mimeType: finalMimeType,
+                fileName: fileName || "secret-note.txt"
             };
 
             const arweaveHash = await uploadToArweave(wallet, hybridBundle, metadata);
             console.log("Arweave Hash:", arweaveHash);
 
-            // List on Solana
             setStatus("Listing on Smart Contract...");
             const provider = new AnchorProvider(connection, wallet, {});
             const validIdl = idl.default || idl;
@@ -89,14 +118,13 @@ const PublishPage = () => {
 
             const txSignature = await program.methods
                 .listContent(contentId, arweaveHash, title, new BN(price))
-                .accounts({
+                .accounts({ 
                     seller: wallet.publicKey,
                     listingPda: listingPda,
                     systemProgram: web3.SystemProgram.programId,
                 })
                 .rpc();
 
-            // Save to Database
             setStatus("Saving to Database...");
             const apiPayload = {
                 contentId,
@@ -119,13 +147,14 @@ const PublishPage = () => {
 
             setStatus("✅ Success! Content is live on Devnet.");
             
-            // Reset form
             setTimeout(() => {
                 setTitle("");
                 setDescription("");
                 setPrice(0);
-                setFileText("");
+                setFileContent(null);
                 setFileName("");
+                setMimeType("");
+                setSecretText("");
                 setStatus("");
             }, 3000);
 
@@ -140,7 +169,6 @@ const PublishPage = () => {
     return (
         <div style={styles.pageContainer}>
             <div style={styles.contentWrapper}>
-                {/* Header Section */}
                 <div style={styles.header}>
                     <div style={styles.headerGradient}></div>
                     <h1 style={styles.title}>📝 Publisher Dashboard</h1>
@@ -153,7 +181,6 @@ const PublishPage = () => {
                     <div style={styles.formCard}>
                         <div style={styles.cardGlow}></div>
 
-                        {/* Status Banner */}
                         {status && (
                             <div style={{
                                 ...styles.statusBanner,
@@ -175,7 +202,6 @@ const PublishPage = () => {
                             </div>
                         )}
 
-                        {/* Form Fields */}
                         <div style={styles.formSection}>
                             <label style={styles.label}>
                                 <span style={styles.labelIcon}>📌</span>
@@ -227,7 +253,6 @@ const PublishPage = () => {
                             </div>
                         </div>
 
-                        {/* File Upload Section */}
                         <div style={styles.formSection}>
                             <label style={styles.label}>
                                 <span style={styles.labelIcon}>🔒</span>
@@ -240,7 +265,6 @@ const PublishPage = () => {
                                     id="fileInput"
                                     onChange={handleFileUpload}
                                     style={styles.fileInput}
-                                    accept=".txt,.md,.json,.js,.py,.sol"
                                     disabled={isProcessing}
                                 />
                                 <label htmlFor="fileInput" style={styles.fileUploadButton}>
@@ -259,26 +283,43 @@ const PublishPage = () => {
                                 )}
                             </div>
 
-                            <div style={styles.divider}>
-                                <span style={styles.dividerText}>OR</span>
-                            </div>
-
-                            <textarea
-                                value={fileText}
-                                onChange={(e) => setFileText(e.target.value)}
-                                placeholder="Paste or type your content here..."
-                                style={styles.textarea}
-                                disabled={isProcessing}
-                            />
                             
-                            {fileText && (
+                            {fileName ? (
+                                <div style={styles.fileCard}>
+                                    <div style={styles.fileCardIcon}>
+                                        {mimeType.startsWith('video') ? '🎥' : mimeType.startsWith('image') ? '🖼️' : '📄'}
+                                    </div>
+                                    <div style={styles.fileCardInfo}>
+                                        <div style={styles.fileCardName}>{fileName}</div>
+                                        <div style={styles.fileCardMeta}>
+                                            {(fileSize / 1024 / 1024).toFixed(2)} MB • {mimeType || 'Unknown Type'}
+                                        </div>
+                                    </div>
+                                    <div style={styles.fileCardStatus}>Ready to Upload</div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={styles.divider}>
+                                        <span style={styles.dividerText}>OR</span>
+                                    </div>
+
+                                    <textarea
+                                        value={secretText}
+                                        onChange={(e) => setSecretText(e.target.value)}
+                                        placeholder="Paste private text content here (if not uploading a file)..."
+                                        style={styles.textarea}
+                                        disabled={isProcessing}
+                                    />
+                                </>
+                            )}
+                            
+                            {!fileName && secretText && (
                                 <div style={styles.contentInfo}>
-                                    {fileText.length} characters • {fileText.split('\n').length} lines
+                                    {secretText.length} characters • {secretText.split('\n').length} lines
                                 </div>
                             )}
                         </div>
 
-                        {/* Publish Button */}
                         <button
                             onClick={handlePublish}
                             style={{
@@ -304,7 +345,6 @@ const PublishPage = () => {
                             {isProcessing ? 'Publishing...' : 'Encrypt & Publish'}
                         </button>
 
-                        {/* Info Section */}
                         <div style={styles.infoSection}>
                             <div style={styles.infoItem}>
                                 <span style={styles.infoIcon}>🔐</span>
@@ -345,7 +385,7 @@ const styles = {
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     },
     contentWrapper: {
-        maxWidth: '800px',
+        maxWidth: '1200px',
         margin: '0 auto',
     },
     header: {
@@ -386,7 +426,7 @@ const styles = {
         position: 'relative',
         background: 'linear-gradient(135deg, rgba(30, 20, 50, 0.9) 0%, rgba(50, 30, 80, 0.9) 100%)',
         borderRadius: '24px',
-        padding: '40px',
+        padding: '60px',
         border: '2px solid rgba(168, 85, 247, 0.2)',
         backdropFilter: 'blur(20px)',
         boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4)',
@@ -612,9 +652,50 @@ const styles = {
         color: '#e9d5ff',
         fontWeight: '600',
     },
+    fileCard: {
+        background: 'rgba(124, 58, 237, 0.1)',
+        border: '1px solid rgba(168, 85, 247, 0.3)',
+        borderRadius: '12px',
+        padding: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '20px',
+        marginTop: '20px',
+    },
+    fileCardIcon: {
+        fontSize: '32px',
+        background: 'rgba(124, 58, 237, 0.2)',
+        width: '60px',
+        height: '60px',
+        borderRadius: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    fileCardInfo: {
+        flex: 1,
+    },
+    fileCardName: {
+        color: '#f3e8ff',
+        fontWeight: '600',
+        fontSize: '16px',
+        marginBottom: '4px',
+        wordBreak: 'break-all',
+    },
+    fileCardMeta: {
+        color: '#a78bfa',
+        fontSize: '13px',
+    },
+    fileCardStatus: {
+        color: '#34d399',
+        fontSize: '13px',
+        fontWeight: '600',
+        background: 'rgba(52, 211, 153, 0.1)',
+        padding: '6px 12px',
+        borderRadius: '20px',
+    },
 };
 
-// Add CSS for hover effects and animations
 if (typeof document !== 'undefined') {
     const styleSheet = document.createElement("style");
     styleSheet.textContent = `
