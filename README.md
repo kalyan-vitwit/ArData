@@ -122,6 +122,3 @@ The client is the user interface.
 -   **Server Script**: If `npm start` in `server/` errors with "missing server.js", just use `node index.js`.
 
 ---
-
-## 📜 License
-ISC / MIT
